@@ -1,52 +1,51 @@
-mod app;
+use std::error::Error;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::Window;
 
-use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-};
-use app::App;
-use tokio::runtime::Runtime;
+fn main() -> Result<(), Box<dyn Error>> {
+    let event_loop = EventLoop::builder().build()?;
+    let mut app = Application::default();
+    event_loop.run_app(&mut app)?;
+    Ok(())
+}
 
-fn main() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        // イベントループとウィンドウのセットアップ
-        let event_loop = EventLoop::new();
-        let window = WindowBuilder::new()
-            .with_title("Redux-style State Management")
-            .build(&event_loop)
-            .unwrap();
+#[derive(Default)]
+struct Application {
+    window: Option<Window>,
+}
 
-        let mut app = App::new(&window).await;
+impl ApplicationHandler for Application {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let window_attributes = Window::default_attributes().with_title("Winit window");
 
-        // イベントループ
-        event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Poll;
+        let window = event_loop
+            .create_window(window_attributes)
+            .expect("failed to create initial window");
+        self.window = Some(window);
+    }
 
-            match event {
-                // ウィンドウがリサイズされた場合
-                Event::WindowEvent {
-                    event: WindowEvent::Resized(new_size),
-                    ..
-                } => {
-                    app.resize(new_size.width, new_size.height);
-                }
-
-                // ウィンドウの閉じるボタンが押された場合
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => *control_flow = ControlFlow::Exit,
-
-                // ウィンドウの再描画要求があった場合
-                Event::RedrawRequested(_) => {
-                    app.update();
-                    app.render();
-                }
-
-                _ => {}
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
             }
-        });
-    });
+            WindowEvent::Destroyed => {
+                // ...
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_none() {
+            event_loop.exit();
+        }
+    }
 }
