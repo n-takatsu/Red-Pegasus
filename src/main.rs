@@ -1,51 +1,94 @@
-use std::error::Error;
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::Window;
+use std::sync::Arc;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::builder().build()?;
-    let mut app = Application::default();
-    event_loop.run_app(&mut app)?;
-    Ok(())
+use winit::{
+    application::ApplicationHandler,
+    dpi::PhysicalSize, event::*,
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    window::{Window, WindowId}
+};
+
+pub struct State<'a> {
+    instance: wgpu::Instance,
+    surface: wgpu::Surface<'a>,
+}
+
+impl<'a> State<'a> {
+    pub async fn new(window: Arc<Window>) -> State<'a> {
+        let instance = wgpu::Instance::default();
+        let surface = instance.create_surface(Arc::clone(&window)).unwrap();
+
+        Self {
+            instance,
+            surface,
+        }
+    }
+
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        println!("State resize")
+    }
+
+    pub fn draw(&self) {
+        println!("State draw")
+    }
 }
 
 #[derive(Default)]
-struct Application {
-    window: Option<Window>,
+pub struct App<'a> {
+    window: Option<Arc<Window>>,
+    state: Option<State<'a>>,
 }
 
-impl ApplicationHandler for Application {
-    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let window_attributes = Window::default_attributes().with_title("Winit window");
+impl ApplicationHandler for App<'_> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        println!("App resumed");
+        if self.window.is_none() {
+            let window = Arc::new(event_loop.create_window(Window::default_attributes()).unwrap());
+            self.window = Some(window.clone());
 
-        let window = event_loop
-            .create_window(window_attributes)
-            .expect("failed to create initial window");
-        self.window = Some(window);
+            let state = pollster::block_on(State::new(window.clone()));
+            self.state = Some(state);
+        }
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        _window_id: winit::window::WindowId,
-        event: winit::event::WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if id != self.window.as_ref().unwrap().id() {
+            return;
+        }
+
         match event {
             WindowEvent::CloseRequested => {
-                event_loop.exit();
-            }
-            WindowEvent::Destroyed => {
-                // ...
-            }
-            _ => {}
+                println!("Close requested");
+                event_loop.exit()
+            },
+            WindowEvent::Resized(physical_size) => {
+                println!("Resize requested");
+                self.state.as_mut().unwrap().resize(physical_size);
+            },
+            WindowEvent::RedrawRequested => {
+                println!("Redraw requested");
+                self.state.as_ref().unwrap().draw();
+            },
+            _ => {},
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_none() {
-            event_loop.exit();
-        }
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        println!("App suspended");
+    }
+
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        println!("App exiting");
+    }
+}
+
+fn main() {
+    env_logger::init();
+
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Poll);
+
+    let mut app = App::default();
+    if let Err(e) = event_loop.run_app(&mut app) {
+        eprintln!("Event loop error: {e}");
     }
 }
